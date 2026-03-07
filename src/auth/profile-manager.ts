@@ -32,14 +32,6 @@ export class ProfileManager {
 
   private lastSyncedProfileId: string | undefined
 
-  private getMaxAuthBackups(): number {
-    const cfg = vscode.workspace.getConfiguration('codexSwitch')
-    const raw = cfg.get<number>('maxAuthBackups', 10)
-    const n = typeof raw === 'number' ? raw : Number(raw)
-    if (!Number.isFinite(n)) return 10
-    return Math.max(0, Math.floor(n))
-  }
-
   private normalizeEmail(email: string | undefined): string {
     return String(email || '').trim().toLowerCase()
   }
@@ -262,9 +254,7 @@ export class ProfileManager {
     const authData = await this.loadAuthData(profileId)
     if (!authData) return
 
-    syncCodexAuthFile(getDefaultCodexAuthPath(), authData, {
-      maxBackups: this.getMaxAuthBackups(),
-    })
+    syncCodexAuthFile(getDefaultCodexAuthPath(), authData)
     this.lastSyncedProfileId = profileId
   }
 
@@ -419,9 +409,7 @@ export class ProfileManager {
 
     if (profileId && authData) {
       // We already validated tokens above; avoid a second secret read.
-      syncCodexAuthFile(getDefaultCodexAuthPath(), authData, {
-        maxBackups: this.getMaxAuthBackups(),
-      })
+      syncCodexAuthFile(getDefaultCodexAuthPath(), authData)
       this.lastSyncedProfileId = profileId
     }
     return true

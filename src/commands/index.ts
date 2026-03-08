@@ -85,6 +85,22 @@ export function registerCommands(
     },
   )
 
+  const activateProfileCommand = vscode.commands.registerCommand(
+    'codex-switch.profile.activate',
+    async (profileId?: string) => {
+      if (!profileId) {
+        await vscode.commands.executeCommand('codex-switch.profile.switch')
+        return
+      }
+
+      const ok = await profileManager.setActiveProfileId(profileId)
+      if (!ok) return
+
+      await onAuthChanged()
+      await maybeReloadWindowAfterProfileSwitch()
+    },
+  )
+
   const toggleLastProfileCommand = vscode.commands.registerCommand(
     'codex-switch.profile.toggleLast',
     async () => {
@@ -400,6 +416,7 @@ export function registerCommands(
   context.subscriptions.push(loginCommand)
   context.subscriptions.push(loginViaCliCommand)
   context.subscriptions.push(switchProfileCommand)
+  context.subscriptions.push(activateProfileCommand)
   context.subscriptions.push(toggleLastProfileCommand)
   context.subscriptions.push(manageProfilesCommand)
   context.subscriptions.push(addFromCodexAuthFileCommand)

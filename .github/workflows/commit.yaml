@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  typescript-lint:
-    name: TypeScript lint
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -28,16 +28,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: TSLint
-        run: npm run lint:ts
-
-  markdown-lint:
-    name: Markdown lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Markdown Lint
-        uses: DavidAnson/markdownlint-cli2-action@v22
+      - name: Run lint
+        run: npm run lint

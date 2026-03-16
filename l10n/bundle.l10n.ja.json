@@ -42,5 +42,6 @@
   "Export profiles": "プロファイルをエクスポート",
   "Export profiles...": "プロファイルをエクスポート...",
   "Selected file is not a valid JSON profiles export.": "選択したファイルは有効な JSON プロファイル エクスポートではありません。",
-  "Failed to import profiles: {0}": "プロファイルのインポートに失敗しました: {0}"
+  "Failed to import profiles: {0}": "プロファイルのインポートに失敗しました: {0}",
+  "Add from current auth.json": "現在の auth.json から追加"
 }

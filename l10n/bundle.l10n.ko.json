@@ -42,5 +42,6 @@
   "Export profiles": "프로필 내보내기",
   "Export profiles...": "프로필 내보내기...",
   "Selected file is not a valid JSON profiles export.": "선택한 파일은 유효한 JSON 프로필 내보내기 파일이 아닙니다.",
-  "Failed to import profiles: {0}": "프로필 가져오기에 실패했습니다: {0}"
+  "Failed to import profiles: {0}": "프로필 가져오기에 실패했습니다: {0}",
+  "Add from current auth.json": "현재 auth.json에서 추가"
 }

@@ -42,5 +42,6 @@
   "Export profiles": "导出配置文件",
   "Export profiles...": "导出配置文件...",
   "Selected file is not a valid JSON profiles export.": "所选文件不是有效的 JSON 配置文件导出。",
-  "Failed to import profiles: {0}": "导入配置文件失败：{0}"
+  "Failed to import profiles: {0}": "导入配置文件失败：{0}",
+  "Add from current auth.json": "从当前 auth.json 添加"
 }

@@ -42,5 +42,6 @@
   "Export profiles": "Exportar perfis",
   "Export profiles...": "Exportar perfis...",
   "Selected file is not a valid JSON profiles export.": "O arquivo selecionado nao e um export JSON de perfis valido.",
-  "Failed to import profiles: {0}": "Falha ao importar perfis: {0}"
+  "Failed to import profiles: {0}": "Falha ao importar perfis: {0}",
+  "Add from current auth.json": "Adicionar do auth.json atual"
 }

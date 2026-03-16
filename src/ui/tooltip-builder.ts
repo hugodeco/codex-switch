@@ -6,13 +6,17 @@ function buildCommandUri(command: string, args: unknown[]): string {
   return `command:${command}?${encodeURIComponent(JSON.stringify(args))}`
 }
 
+function escapeLinkTitle(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
 export function createProfileTooltip(
   activeProfile: ProfileSummary | null,
   profiles: ProfileSummary[],
 ): vscode.MarkdownString {
   const tooltip = new vscode.MarkdownString()
   tooltip.supportThemeIcons = true
-  tooltip.supportHtml = false
+  tooltip.supportHtml = true
   tooltip.isTrusted = {
     enabledCommands: [
       'codex-switch.profile.manage',
@@ -33,12 +37,22 @@ export function createProfileTooltip(
         rawPlan === 'Unknown' ? vscode.l10n.t('Unknown') : rawPlan.toUpperCase()
       const plan = escapeMarkdown(planDisplay)
       const switchUri = buildCommandUri('codex-switch.profile.activate', [p.id])
-      const label =
-        activeId && p.id === activeId
-          ? `$(check) **${name}** - ${plan}`
-          : `${name} - ${plan}`
+      const emailDisplay =
+        p.email && p.email !== 'Unknown' ? p.email : vscode.l10n.t('Unknown')
+      const linkTitle = escapeLinkTitle(emailDisplay)
+      const isActive = Boolean(activeId && p.id === activeId)
+      const linkedName = isActive
+        ? `[**${name}**](${switchUri} "${linkTitle}")`
+        : `[${name}](${switchUri} "${linkTitle}")`
 
-      tooltip.appendMarkdown(`* [${label}](${switchUri})\n`)
+      if (isActive) {
+        const activeLabel = escapeMarkdown(vscode.l10n.t('Active'))
+        tooltip.appendMarkdown(
+          `* ${linkedName} - ${plan} <span style="color: var(--vscode-textLink-activeForeground); font-weight: 600;">(${activeLabel})</span>\n`,
+        )
+      } else {
+        tooltip.appendMarkdown(`* ${linkedName} - ${plan}\n`)
+      }
     }
     tooltip.appendMarkdown('\n')
   }

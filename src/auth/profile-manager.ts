@@ -2,9 +2,22 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import { randomUUID } from 'crypto'
-import { AuthData, ProfileSummary } from '../types'
-import { getDefaultCodexAuthPath } from './auth-manager'
+import { AuthData, ProfileSummary, StorageMode } from '../types'
+import { getDefaultCodexAuthPath, loadAuthDataFromFile } from './auth-manager'
 import { syncCodexAuthFile } from './codex-auth-sync'
+import {
+  SharedActiveProfile,
+  SHARED_ACTIVE_PROFILE_FILENAME,
+  deleteFileIfExists,
+  ensureSharedStoreDirs,
+  getSharedActiveProfilePath,
+  getSharedProfileSecretsPath,
+  getSharedProfilesDir,
+  getSharedProfilesPath,
+  getSharedStoreRoot,
+  readJsonFile,
+  writeJsonFile,
+} from './shared-profile-store'
 
 type ProfileTokens = Pick<
   AuthData,
@@ -32,48 +45,89 @@ export class ProfileManager {
 
   private lastSyncedProfileId: string | undefined
 
+  private getConfiguredStorageMode(): StorageMode {
+    const cfg = vscode.workspace.getConfiguration('codexSwitch')
+    const raw = cfg.get<StorageMode>('storageMode', 'auto')
+    if (raw === 'secretStorage' || raw === 'remoteFiles' || raw === 'auto') {
+      return raw
+    }
+    return 'auto'
+  }
+
+  private getResolvedStorageMode(): Exclude<StorageMode, 'auto'> {
+    const configured = this.getConfiguredStorageMode()
+    if (configured === 'auto') {
+      return vscode.env.remoteName === 'ssh-remote'
+        ? 'remoteFiles'
+        : 'secretStorage'
+    }
+    return configured
+  }
+
+  private isRemoteFilesMode(): boolean {
+    return this.getResolvedStorageMode() === 'remoteFiles'
+  }
+
   private normalizeEmail(email: string | undefined): string {
     return String(email || '').trim().toLowerCase()
   }
 
+  private normalizeIdentity(value: string | undefined): string {
+    return String(value || '').trim()
+  }
+
+  private compareIdentityField(
+    profileValue: string | undefined,
+    authValue: string | undefined,
+  ): boolean | undefined {
+    const p = this.normalizeIdentity(profileValue)
+    const a = this.normalizeIdentity(authValue)
+    if (!p || !a) return undefined
+    return p === a
+  }
+
   private matchesAuth(profile: ProfileSummary, authData: AuthData): boolean {
+    // Team/Business tenants can share account_id across different users.
+    // Match by user identity fields first, then email as a final fallback.
+    const chatgptUserIdMatch = this.compareIdentityField(
+      profile.chatgptUserId,
+      authData.chatgptUserId,
+    )
+    if (chatgptUserIdMatch !== undefined) return chatgptUserIdMatch
+
+    const userIdMatch = this.compareIdentityField(profile.userId, authData.userId)
+    if (userIdMatch !== undefined) return userIdMatch
+
+    const subjectMatch = this.compareIdentityField(profile.subject, authData.subject)
+    if (subjectMatch !== undefined) return subjectMatch
+
     const pe = this.normalizeEmail(profile.email)
     const ae = this.normalizeEmail(authData.email)
-    const hasComparableEmail =
-      Boolean(pe) &&
-      Boolean(ae) &&
-      pe !== 'unknown' &&
-      ae !== 'unknown'
-    const hasComparableAccountId =
-      Boolean(authData.accountId) && Boolean(profile.accountId)
-
-    // When both identifiers are present, require both to match.
-    // Team accounts can share accountId across different users, and the same
-    // email can legitimately have multiple plans/accounts.
-    if (hasComparableEmail && hasComparableAccountId) {
-      return pe === ae && authData.accountId === profile.accountId
-    }
-
-    if (hasComparableEmail) {
-      return pe === ae
-    }
-
-    if (hasComparableAccountId) {
-      return authData.accountId === profile.accountId
-    }
-
-    return false
+    if (!pe || !ae) return false
+    if (pe === 'unknown' || ae === 'unknown') return false
+    return pe === ae
   }
 
   private getStorageDir(): string {
+    if (this.isRemoteFilesMode()) {
+      return getSharedStoreRoot()
+    }
     return this.context.globalStorageUri.fsPath
   }
 
   private getProfilesPath(): string {
+    if (this.isRemoteFilesMode()) {
+      return getSharedProfilesPath()
+    }
     return path.join(this.getStorageDir(), PROFILES_FILENAME)
   }
 
   private ensureStorageDir() {
+    if (this.isRemoteFilesMode()) {
+      ensureSharedStoreDirs()
+      return
+    }
+
     const dir = this.getStorageDir()
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
@@ -109,6 +163,11 @@ export class ProfileManager {
     }
 
     try {
+      if (this.isRemoteFilesMode()) {
+        const parsed = readJsonFile<any>(filePath)
+        if (parsed == null) return { version: 1, profiles: [] }
+        return this.parseProfilesFile(JSON.stringify(parsed))
+      }
       const raw = fs.readFileSync(filePath, 'utf8')
       return this.parseProfilesFile(raw)
     } catch {
@@ -119,6 +178,11 @@ export class ProfileManager {
 
   private writeProfilesFile(data: ProfilesFileV1) {
     this.ensureStorageDir()
+    if (this.isRemoteFilesMode()) {
+      writeJsonFile(this.getProfilesPath(), data)
+      return
+    }
+
     fs.writeFileSync(this.getProfilesPath(), JSON.stringify(data, null, 2), {
       encoding: 'utf8',
     })
@@ -132,9 +196,68 @@ export class ProfileManager {
     return `${OLD_SECRET_PREFIX}${profileId}`
   }
 
+  private readSharedActiveProfile(): SharedActiveProfile | null {
+    if (!this.isRemoteFilesMode()) return null
+    return readJsonFile<SharedActiveProfile>(getSharedActiveProfilePath())
+  }
+
+  private writeSharedActiveProfile(profileId: string): void {
+    if (!this.isRemoteFilesMode()) return
+    writeJsonFile(getSharedActiveProfilePath(), {
+      profileId,
+      updatedAt: new Date().toISOString(),
+    } satisfies SharedActiveProfile)
+  }
+
+  private deleteSharedActiveProfile(): void {
+    if (!this.isRemoteFilesMode()) return
+    deleteFileIfExists(getSharedActiveProfilePath())
+  }
+
+  private readRemoteProfileTokens(profileId: string): ProfileTokens | null {
+    return readJsonFile<ProfileTokens>(getSharedProfileSecretsPath(profileId))
+  }
+
+  private async readStoredTokens(profileId: string): Promise<ProfileTokens | null> {
+    if (this.isRemoteFilesMode()) {
+      return this.readRemoteProfileTokens(profileId)
+    }
+
+    const raw =
+      (await this.context.secrets.get(this.secretKey(profileId))) ||
+      (await this.context.secrets.get(this.legacySecretKey(profileId)))
+    if (!raw) return null
+
+    try {
+      return JSON.parse(raw) as ProfileTokens
+    } catch {
+      return null
+    }
+  }
+
+  private async writeStoredTokens(profileId: string, tokens: ProfileTokens): Promise<void> {
+    if (this.isRemoteFilesMode()) {
+      ensureSharedStoreDirs()
+      writeJsonFile(getSharedProfileSecretsPath(profileId), tokens)
+      return
+    }
+
+    await this.context.secrets.store(this.secretKey(profileId), JSON.stringify(tokens))
+  }
+
+  private async deleteStoredTokens(profileId: string): Promise<void> {
+    if (this.isRemoteFilesMode()) {
+      deleteFileIfExists(getSharedProfileSecretsPath(profileId))
+      return
+    }
+
+    await this.context.secrets.delete(this.secretKey(profileId))
+    await this.context.secrets.delete(this.legacySecretKey(profileId))
+  }
+
   private getGlobalStorageRoot(): string {
     // .../User/globalStorage/<publisher.name> -> .../User/globalStorage
-    return path.dirname(this.getStorageDir())
+    return path.dirname(this.context.globalStorageUri.fsPath)
   }
 
   private async tryMigrateLegacyProfilesOnce(): Promise<void> {
@@ -217,9 +340,69 @@ export class ProfileManager {
     return profiles.find((p) => p.id === profileId)
   }
 
+  private async inferActiveProfileIdFromAuthFile(): Promise<string | undefined> {
+    const authData = await loadAuthDataFromFile(getDefaultCodexAuthPath())
+    if (!authData) return undefined
+
+    const file = await this.readProfilesFile()
+    const match = file.profiles.find((p) => this.matchesAuth(p, authData))
+    return match?.id
+  }
+
   async findDuplicateProfile(authData: AuthData): Promise<ProfileSummary | undefined> {
     const file = await this.readProfilesFile()
     return file.profiles.find((p) => this.matchesAuth(p, authData))
+  }
+
+  private async recoverMissingTokens(profileId: string): Promise<AuthData | null> {
+    const profile = await this.getProfile(profileId)
+    const recoverLabel = vscode.l10n.t('Recover from remote store')
+    const importLabel = vscode.l10n.t('Import current ~/.codex/auth.json')
+    const deleteLabel = vscode.l10n.t('Delete broken profile')
+
+    const canRecoverFromRemote =
+      !this.isRemoteFilesMode() &&
+      this.readRemoteProfileTokens(profileId) != null
+
+    const pick = await vscode.window.showWarningMessage(
+      vscode.l10n.t(
+        'Profile "{0}" is missing tokens. Restore it before switching.',
+        profile?.name || profileId,
+      ),
+      { modal: true },
+      ...(canRecoverFromRemote ? [recoverLabel] : []),
+      importLabel,
+      deleteLabel,
+    )
+
+    if (pick === recoverLabel) {
+      const tokens = this.readRemoteProfileTokens(profileId)
+      if (tokens) {
+        await this.writeStoredTokens(profileId, tokens)
+        return this.loadAuthData(profileId)
+      }
+    }
+
+    if (pick === importLabel) {
+      const authData = await loadAuthDataFromFile(getDefaultCodexAuthPath())
+      if (!authData) {
+        void vscode.window.showErrorMessage(
+          vscode.l10n.t(
+            'Could not read auth from {0}. Run "codex login" first.',
+            getDefaultCodexAuthPath(),
+          ),
+        )
+        return null
+      }
+      await this.replaceProfileAuth(profileId, authData)
+      return authData
+    }
+
+    if (pick === deleteLabel) {
+      await this.deleteProfile(profileId)
+    }
+
+    return null
   }
 
   async replaceProfileAuth(profileId: string, authData: AuthData): Promise<boolean> {
@@ -232,6 +415,9 @@ export class ProfileManager {
       email: authData.email,
       planType: authData.planType,
       accountId: authData.accountId,
+      chatgptUserId: authData.chatgptUserId,
+      userId: authData.userId,
+      subject: authData.subject,
       updatedAt: new Date().toISOString(),
     }
     this.writeProfilesFile(file)
@@ -243,7 +429,7 @@ export class ProfileManager {
       accountId: authData.accountId,
       authJson: authData.authJson,
     }
-    await this.context.secrets.store(this.secretKey(profileId), JSON.stringify(tokens))
+    await this.writeStoredTokens(profileId, tokens)
     return true
   }
 
@@ -268,6 +454,9 @@ export class ProfileManager {
       email: authData.email,
       planType: authData.planType,
       accountId: authData.accountId,
+      chatgptUserId: authData.chatgptUserId,
+      userId: authData.userId,
+      subject: authData.subject,
       createdAt: now,
       updatedAt: now,
     }
@@ -283,7 +472,7 @@ export class ProfileManager {
       accountId: authData.accountId,
       authJson: authData.authJson,
     }
-    await this.context.secrets.store(this.secretKey(id), JSON.stringify(tokens))
+    await this.writeStoredTokens(id, tokens)
 
     return profile
   }
@@ -308,8 +497,7 @@ export class ProfileManager {
     if (file.profiles.length === before) return false
     this.writeProfilesFile(file)
 
-    await this.context.secrets.delete(this.secretKey(profileId))
-    await this.context.secrets.delete(this.legacySecretKey(profileId))
+    await this.deleteStoredTokens(profileId)
 
     // Clean up active/last if they point to deleted profile.
     const active = await this.getActiveProfileId()
@@ -322,24 +510,21 @@ export class ProfileManager {
   async loadAuthData(profileId: string): Promise<AuthData | null> {
     const profile = await this.getProfile(profileId)
     if (!profile) return null
-    const raw =
-      (await this.context.secrets.get(this.secretKey(profileId))) ||
-      (await this.context.secrets.get(this.legacySecretKey(profileId)))
-    if (!raw) return null
 
-    try {
-      const tokens = JSON.parse(raw) as ProfileTokens
-      return {
-        idToken: tokens.idToken,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        accountId: tokens.accountId,
-        email: profile.email,
-        planType: profile.planType,
-        authJson: tokens.authJson,
-      }
-    } catch {
-      return null
+    const tokens = await this.readStoredTokens(profileId)
+    if (!tokens) return null
+
+    return {
+      idToken: tokens.idToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      accountId: tokens.accountId || profile.accountId,
+      chatgptUserId: profile.chatgptUserId,
+      userId: profile.userId,
+      subject: profile.subject,
+      email: profile.email,
+      planType: profile.planType,
+      authJson: tokens.authJson,
     }
   }
 
@@ -362,6 +547,20 @@ export class ProfileManager {
   }
 
   async getActiveProfileId(): Promise<string | undefined> {
+    if (this.isRemoteFilesMode()) {
+      const explicit = this.readSharedActiveProfile()?.profileId
+      const inferred = await this.inferActiveProfileIdFromAuthFile()
+
+      if (inferred) {
+        if (explicit !== inferred) {
+          this.writeSharedActiveProfile(inferred)
+        }
+        return inferred
+      }
+
+      return explicit
+    }
+
     const bucket = this.getStateBucket()
     const v = bucket.get<string>(ACTIVE_PROFILE_KEY)
     if (v) return v
@@ -383,29 +582,34 @@ export class ProfileManager {
   async setActiveProfileId(profileId: string | undefined): Promise<boolean> {
     const bucket = this.getStateBucket()
     const prev =
-      bucket.get<string>(ACTIVE_PROFILE_KEY) ||
-      bucket.get<string>(OLD_ACTIVE_PROFILE_KEY)
+      (this.isRemoteFilesMode()
+        ? await this.getActiveProfileId()
+        : bucket.get<string>(ACTIVE_PROFILE_KEY) ||
+          bucket.get<string>(OLD_ACTIVE_PROFILE_KEY))
 
     let authData: AuthData | null = null
     if (profileId) {
       authData = await this.loadAuthData(profileId)
       if (!authData) {
-        const p = await this.getProfile(profileId)
-        void vscode.window.showErrorMessage(
-          vscode.l10n.t(
-            'Profile "{0}" is missing tokens. Re-import auth.json to replace it.',
-            p?.name || profileId,
-          ),
-        )
-        return false
+        authData = await this.recoverMissingTokens(profileId)
+        if (!authData) return false
       }
     }
 
     if (prev && profileId && prev !== profileId) {
       await this.setLastProfileId(prev)
     }
-    await bucket.update(ACTIVE_PROFILE_KEY, profileId)
-    await bucket.update(OLD_ACTIVE_PROFILE_KEY, undefined)
+
+    if (this.isRemoteFilesMode()) {
+      if (profileId) {
+        this.writeSharedActiveProfile(profileId)
+      } else {
+        this.deleteSharedActiveProfile()
+      }
+    } else {
+      await bucket.update(ACTIVE_PROFILE_KEY, profileId)
+      await bucket.update(OLD_ACTIVE_PROFILE_KEY, undefined)
+    }
 
     if (profileId && authData) {
       // We already validated tokens above; avoid a second secret read.
@@ -456,5 +660,59 @@ export class ProfileManager {
     const active = await this.getActiveProfileId()
     if (!active) return
     await this.maybeSyncToCodexAuthFile(active)
+  }
+
+  createWatchers(onChanged: () => void): vscode.Disposable[] {
+    const disposables: vscode.Disposable[] = []
+    const fire = () => {
+      try {
+        onChanged()
+      } catch {
+        // ignore refresh errors from file watchers
+      }
+    }
+
+    const authDir = path.dirname(getDefaultCodexAuthPath())
+    const authWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(authDir), 'auth.json'),
+    )
+    authWatcher.onDidCreate(fire)
+    authWatcher.onDidChange(fire)
+    authWatcher.onDidDelete(fire)
+    disposables.push(authWatcher)
+
+    if (this.isRemoteFilesMode()) {
+      const profilesWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(
+          vscode.Uri.file(getSharedStoreRoot()),
+          PROFILES_FILENAME,
+        ),
+      )
+      profilesWatcher.onDidCreate(fire)
+      profilesWatcher.onDidChange(fire)
+      profilesWatcher.onDidDelete(fire)
+      disposables.push(profilesWatcher)
+
+      const activeWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(
+          vscode.Uri.file(getSharedStoreRoot()),
+          SHARED_ACTIVE_PROFILE_FILENAME,
+        ),
+      )
+      activeWatcher.onDidCreate(fire)
+      activeWatcher.onDidChange(fire)
+      activeWatcher.onDidDelete(fire)
+      disposables.push(activeWatcher)
+
+      const tokenWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(getSharedProfilesDir()), '*.json'),
+      )
+      tokenWatcher.onDidCreate(fire)
+      tokenWatcher.onDidChange(fire)
+      tokenWatcher.onDidDelete(fire)
+      disposables.push(tokenWatcher)
+    }
+
+    return disposables
   }
 }

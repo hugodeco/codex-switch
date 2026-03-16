@@ -18,6 +18,9 @@
   "Import auth.json": "Import auth.json",
   "Import from file...": "Import from file...",
   "Import now": "Import now",
+  "Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.": "Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.",
+  "Import completed: created {0}, updated {1}, skipped {2}.": "Import completed: created {0}, updated {1}, skipped {2}.",
+  "Unknown import error.": "Unknown import error.",
   "Login via Codex CLI": "Login via Codex CLI",
   "Login via Codex CLI...": "Login via Codex CLI...",
   "Manage profiles": "Manage profiles",
@@ -33,5 +36,11 @@
   "Switch profile": "Switch profile",
   "This account is already saved as profile \"{0}\". Replace it?": "This account is already saved as profile \"{0}\". Replace it?",
   "Unknown": "Unknown",
-  "none": "none"
+  "none": "none",
+  "Import profiles": "Import profiles",
+  "Import profiles...": "Import profiles...",
+  "Export profiles": "Export profiles",
+  "Export profiles...": "Export profiles...",
+  "Selected file is not a valid JSON profiles export.": "Selected file is not a valid JSON profiles export.",
+  "Failed to import profiles: {0}": "Failed to import profiles: {0}"
 }

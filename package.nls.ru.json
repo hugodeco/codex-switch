@@ -17,5 +17,7 @@
   "command.profile.addFromCodexAuthFile.title": "Codex Switch: Добавить из текущего auth.json",
   "command.profile.addFromFile.title": "Codex Switch: Импортировать из файла",
   "command.profile.rename.title": "Codex Switch: Переименовать профиль",
-  "command.profile.delete.title": "Codex Switch: Удалить профиль"
+  "command.profile.delete.title": "Codex Switch: Удалить профиль",
+  "command.profile.exportSettings.title": "Codex Switch: Экспорт профилей",
+  "command.profile.importSettings.title": "Codex Switch: Импорт профилей"
 }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 import { ProfileManager } from '../auth/profile-manager'
 import {
   getDefaultCodexAuthPath,
@@ -36,6 +37,12 @@ export function registerCommands(
       .getConfiguration('codexSwitch')
       .get<StatusBarClickBehavior>('statusBarClickBehavior', 'cycle')
     return raw === 'toggleLast' ? 'toggleLast' : 'cycle'
+  }
+
+  const getDefaultSettingsExportUri = (): vscode.Uri => {
+    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+    const baseDir = workspacePath || os.homedir()
+    return vscode.Uri.file(path.join(baseDir, 'codex-switch-profiles.json'))
   }
 
   // Login command
@@ -394,6 +401,78 @@ export function registerCommands(
     },
   )
 
+  const exportSettingsCommand = vscode.commands.registerCommand(
+    'codex-switch.profile.exportSettings',
+    async () => {
+      const saveUri = await vscode.window.showSaveDialog({
+        saveLabel: vscode.l10n.t('Export profiles'),
+        defaultUri: getDefaultSettingsExportUri(),
+        filters: { JSON: ['json'] },
+      })
+      if (!saveUri) {
+        return
+      }
+
+      const { data, skipped } = await profileManager.exportProfilesForTransfer()
+      fs.writeFileSync(saveUri.fsPath, JSON.stringify(data, null, 2), 'utf8')
+
+      vscode.window.showInformationMessage(
+        vscode.l10n.t(
+          'Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.',
+          data.profiles.length,
+          saveUri.fsPath,
+          skipped,
+        ),
+      )
+    },
+  )
+
+  const importSettingsCommand = vscode.commands.registerCommand(
+    'codex-switch.profile.importSettings',
+    async () => {
+      const uri = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: vscode.l10n.t('Import profiles'),
+        filters: { JSON: ['json'] },
+      })
+      if (!uri || uri.length === 0) {
+        return
+      }
+
+      let payload: unknown
+      try {
+        payload = JSON.parse(fs.readFileSync(uri[0].fsPath, 'utf8')) as unknown
+      } catch {
+        vscode.window.showErrorMessage(
+          vscode.l10n.t('Selected file is not a valid JSON profiles export.'),
+        )
+        return
+      }
+
+      try {
+        const result = await profileManager.importProfilesFromTransfer(payload)
+        await onAuthChanged()
+        await maybeReloadWindowAfterProfileSwitch()
+        vscode.window.showInformationMessage(
+          vscode.l10n.t(
+            'Import completed: created {0}, updated {1}, skipped {2}.',
+            result.created,
+            result.updated,
+            result.skipped,
+          ),
+        )
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : vscode.l10n.t('Unknown import error.')
+        vscode.window.showErrorMessage(
+          vscode.l10n.t('Failed to import profiles: {0}', message),
+        )
+      }
+    },
+  )
+
   const renameProfileCommand = vscode.commands.registerCommand(
     'codex-switch.profile.rename',
     async () => {
@@ -492,6 +571,14 @@ export function registerCommands(
             label: vscode.l10n.t('Import from file...'),
             command: 'codex-switch.profile.addFromFile',
           },
+          {
+            label: vscode.l10n.t('Export profiles...'),
+            command: 'codex-switch.profile.exportSettings',
+          },
+          {
+            label: vscode.l10n.t('Import profiles...'),
+            command: 'codex-switch.profile.importSettings',
+          },
           ...(hasProfiles
             ? [
                 {
@@ -523,6 +610,8 @@ export function registerCommands(
   context.subscriptions.push(manageProfilesCommand)
   context.subscriptions.push(addFromCodexAuthFileCommand)
   context.subscriptions.push(addFromFileCommand)
+  context.subscriptions.push(exportSettingsCommand)
+  context.subscriptions.push(importSettingsCommand)
   context.subscriptions.push(renameProfileCommand)
   context.subscriptions.push(deleteProfileCommand)
 }

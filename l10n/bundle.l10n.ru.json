@@ -33,5 +33,14 @@
   "Switch profile": "Переключить профиль",
   "This account is already saved as profile \"{0}\". Replace it?": "Этот аккаунт уже сохранен как профиль \"{0}\". Заменить его?",
   "Unknown": "Неизвестно",
-  "none": "нет"
+  "none": "нет",
+  "Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.": "Экспортировано профилей: {0} в {1}. Пропущено профилей без токенов: {2}.",
+  "Import completed: created {0}, updated {1}, skipped {2}.": "Импорт завершен: создано {0}, обновлено {1}, пропущено {2}.",
+  "Unknown import error.": "Неизвестная ошибка импорта.",
+  "Import profiles": "Импорт профилей",
+  "Import profiles...": "Импорт профилей...",
+  "Export profiles": "Экспорт профилей",
+  "Export profiles...": "Экспорт профилей...",
+  "Selected file is not a valid JSON profiles export.": "Выбранный файл не является корректным JSON-экспортом профилей.",
+  "Failed to import profiles: {0}": "Не удалось импортировать профили: {0}"
 }

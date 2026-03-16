@@ -33,5 +33,14 @@
   "Switch profile": "Cambia profilo",
   "This account is already saved as profile \"{0}\". Replace it?": "Questo account e gia salvato come profilo \"{0}\". Sostituirlo?",
   "Unknown": "Sconosciuto",
-  "none": "nessuno"
+  "none": "nessuno",
+  "Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.": "Esportati {0} profilo/i in {1}. Saltati {2} profilo/i senza token.",
+  "Import completed: created {0}, updated {1}, skipped {2}.": "Import completato: creati {0}, aggiornati {1}, saltati {2}.",
+  "Unknown import error.": "Errore di importazione sconosciuto.",
+  "Import profiles": "Importa profili",
+  "Import profiles...": "Importa profili...",
+  "Export profiles": "Esporta profili",
+  "Export profiles...": "Esporta profili...",
+  "Selected file is not a valid JSON profiles export.": "Il file selezionato non e un export JSON dei profili valido.",
+  "Failed to import profiles: {0}": "Impossibile importare i profili: {0}"
 }

@@ -16,5 +16,7 @@
   "configuration.reloadWindowAfterProfileSwitch.description": "VS Code-Fenster nach erfolgreichem Profilwechsel/-import neu laden, damit die Codex-Erweiterung auth.json erneut einliest",
   "configuration.statusBarClickBehavior.description": "Verhalten beim Klick auf das Profil-Element in der Statusleiste",
   "configuration.statusBarClickBehavior.cycle": "Alle gespeicherten Profile zyklisch wechseln",
-  "configuration.statusBarClickBehavior.toggleLast": "Zwischen aktuellem und vorherigem Profil wechseln"
+  "configuration.statusBarClickBehavior.toggleLast": "Zwischen aktuellem und vorherigem Profil wechseln",
+  "command.profile.exportSettings.title": "Codex Switch: Profile exportieren",
+  "command.profile.importSettings.title": "Codex Switch: Profile importieren"
 }

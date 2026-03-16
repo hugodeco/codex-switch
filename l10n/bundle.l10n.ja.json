@@ -33,5 +33,14 @@
   "Switch profile": "プロファイル切り替え",
   "This account is already saved as profile \"{0}\". Replace it?": "このアカウントは既にプロファイル「{0}」として保存されています。置き換えますか?",
   "Unknown": "不明",
-  "none": "なし"
+  "none": "なし",
+  "Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.": "{0} 件のプロファイルを {1} にエクスポートしました。トークンなしの {2} 件をスキップしました。",
+  "Import completed: created {0}, updated {1}, skipped {2}.": "インポート完了: 作成 {0}、更新 {1}、スキップ {2}。",
+  "Unknown import error.": "不明なインポート エラー。",
+  "Import profiles": "プロファイルをインポート",
+  "Import profiles...": "プロファイルをインポート...",
+  "Export profiles": "プロファイルをエクスポート",
+  "Export profiles...": "プロファイルをエクスポート...",
+  "Selected file is not a valid JSON profiles export.": "選択したファイルは有効な JSON プロファイル エクスポートではありません。",
+  "Failed to import profiles: {0}": "プロファイルのインポートに失敗しました: {0}"
 }

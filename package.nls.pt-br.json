@@ -16,5 +16,7 @@
   "configuration.reloadWindowAfterProfileSwitch.description": "Recarregar a janela do VS Code apos trocar/importar perfil com sucesso para que a extensao Codex releia o auth.json",
   "configuration.statusBarClickBehavior.description": "Comportamento ao clicar no item de perfil da barra de status",
   "configuration.statusBarClickBehavior.cycle": "Alternar em ciclo por todos os perfis salvos",
-  "configuration.statusBarClickBehavior.toggleLast": "Alternar entre o perfil atual e o anterior"
+  "configuration.statusBarClickBehavior.toggleLast": "Alternar entre o perfil atual e o anterior",
+  "command.profile.exportSettings.title": "Codex Switch: Exportar perfis",
+  "command.profile.importSettings.title": "Codex Switch: Importar perfis"
 }

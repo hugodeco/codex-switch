@@ -40,6 +40,47 @@ const OLD_LAST_PROFILE_KEY = 'codexUsage.lastProfileId'
 const OLD_SECRET_PREFIX = 'codexUsage.profile.'
 const NEW_SECRET_PREFIX = 'codexSwitch.profile.'
 
+interface ExportedProfileEntryV1 {
+  profile: ProfileSummary
+  tokens: ProfileTokens
+}
+
+interface ExportedSettingsV1 {
+  format: 'codex-switch-profile-export'
+  version: 1
+  exportedAt: string
+  activeProfileId?: string
+  lastProfileId?: string
+  profiles: ExportedProfileEntryV1[]
+}
+
+interface ImportProfilesResult {
+  created: number
+  updated: number
+  skipped: number
+}
+
+interface ParsedImportEntry {
+  sourceProfileId?: string
+  name: string
+  authData: AuthData
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  return value as Record<string, unknown>
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  const v = value.trim()
+  return v ? v : undefined
+}
+
 export class ProfileManager {
   constructor(private context: vscode.ExtensionContext) {}
 
@@ -439,6 +480,162 @@ export class ProfileManager {
   async getProfile(profileId: string): Promise<ProfileSummary | undefined> {
     const profiles = await this.listProfiles()
     return profiles.find((p) => p.id === profileId)
+  }
+
+  async exportProfilesForTransfer(): Promise<{
+    data: ExportedSettingsV1
+    skipped: number
+  }> {
+    const profiles = await this.listProfiles()
+    const activeProfileId = await this.getActiveProfileId()
+    const lastProfileId = await this.getLastProfileId()
+
+    const exportedProfiles: ExportedProfileEntryV1[] = []
+    let skipped = 0
+
+    for (const profile of profiles) {
+      const tokens = await this.readStoredTokens(profile.id)
+      if (!tokens) {
+        skipped += 1
+        continue
+      }
+      exportedProfiles.push({ profile, tokens })
+    }
+
+    const data: ExportedSettingsV1 = {
+      format: 'codex-switch-profile-export',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      activeProfileId,
+      lastProfileId,
+      profiles: exportedProfiles,
+    }
+
+    return { data, skipped }
+  }
+
+  private parseImportEntry(value: unknown): ParsedImportEntry | null {
+    const entry = asObject(value)
+    if (!entry) {
+      return null
+    }
+
+    const profile = asObject(entry.profile)
+    const tokens = asObject(entry.tokens)
+    if (!profile || !tokens) {
+      return null
+    }
+
+    const idToken = asOptionalString(tokens.idToken)
+    const accessToken = asOptionalString(tokens.accessToken)
+    const refreshToken = asOptionalString(tokens.refreshToken)
+    if (!idToken || !accessToken || !refreshToken) {
+      return null
+    }
+
+    const email = asOptionalString(profile.email) || 'Unknown'
+    const planType = asOptionalString(profile.planType) || 'Unknown'
+    const name =
+      asOptionalString(profile.name) ||
+      (email !== 'Unknown' ? email.split('@')[0] : undefined) ||
+      'profile'
+
+    const authJson = asObject(tokens.authJson) || undefined
+    const accountId =
+      asOptionalString(tokens.accountId) || asOptionalString(profile.accountId)
+
+    return {
+      sourceProfileId: asOptionalString(profile.id),
+      name,
+      authData: {
+        idToken,
+        accessToken,
+        refreshToken,
+        accountId,
+        defaultOrganizationId: asOptionalString(profile.defaultOrganizationId),
+        defaultOrganizationTitle: asOptionalString(
+          profile.defaultOrganizationTitle,
+        ),
+        chatgptUserId: asOptionalString(profile.chatgptUserId),
+        userId: asOptionalString(profile.userId),
+        subject: asOptionalString(profile.subject),
+        email,
+        planType,
+        authJson,
+      },
+    }
+  }
+
+  async importProfilesFromTransfer(
+    value: unknown,
+  ): Promise<ImportProfilesResult> {
+    const payload = asObject(value)
+    if (!payload) {
+      throw new Error('Invalid settings file format.')
+    }
+
+    const format = asOptionalString(payload.format)
+    if (format !== 'codex-switch-profile-export') {
+      throw new Error('Unsupported settings file format.')
+    }
+
+    if (payload.version !== 1) {
+      throw new Error('Unsupported settings export version.')
+    }
+
+    if (!Array.isArray(payload.profiles)) {
+      throw new Error('Invalid settings file: profiles must be an array.')
+    }
+
+    const sourceToTargetId = new Map<string, string>()
+    let created = 0
+    let updated = 0
+    let skipped = 0
+
+    for (const rawEntry of payload.profiles) {
+      const parsed = this.parseImportEntry(rawEntry)
+      if (!parsed) {
+        skipped += 1
+        continue
+      }
+
+      const duplicate = await this.findDuplicateProfile(parsed.authData)
+      if (duplicate) {
+        await this.replaceProfileAuth(duplicate.id, parsed.authData)
+        if (parsed.sourceProfileId) {
+          sourceToTargetId.set(parsed.sourceProfileId, duplicate.id)
+        }
+        updated += 1
+        continue
+      }
+
+      const createdProfile = await this.createProfile(
+        parsed.name,
+        parsed.authData,
+      )
+      if (parsed.sourceProfileId) {
+        sourceToTargetId.set(parsed.sourceProfileId, createdProfile.id)
+      }
+      created += 1
+    }
+
+    const importedActiveProfileId = asOptionalString(payload.activeProfileId)
+    if (importedActiveProfileId) {
+      const targetId = sourceToTargetId.get(importedActiveProfileId)
+      if (targetId) {
+        await this.setActiveProfileId(targetId)
+      }
+    }
+
+    const importedLastProfileId = asOptionalString(payload.lastProfileId)
+    if (importedLastProfileId) {
+      const targetId = sourceToTargetId.get(importedLastProfileId)
+      if (targetId) {
+        await this.setLastProfileId(targetId)
+      }
+    }
+
+    return { created, updated, skipped }
   }
 
   private async inferActiveProfileIdFromAuthFile(): Promise<

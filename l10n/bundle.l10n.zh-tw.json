@@ -33,5 +33,14 @@
   "Switch profile": "切換設定檔",
   "This account is already saved as profile \"{0}\". Replace it?": "此帳號已作為設定檔「{0}」儲存。要取代嗎？",
   "Unknown": "未知",
-  "none": "無"
+  "none": "無",
+  "Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.": "已將 {0} 個設定檔匯出到 {1}。已略過 {2} 個缺少權杖的設定檔。",
+  "Import completed: created {0}, updated {1}, skipped {2}.": "匯入完成：已建立 {0}、已更新 {1}、已略過 {2}。",
+  "Unknown import error.": "未知的匯入錯誤。",
+  "Import profiles": "匯入設定檔",
+  "Import profiles...": "匯入設定檔...",
+  "Export profiles": "匯出設定檔",
+  "Export profiles...": "匯出設定檔...",
+  "Selected file is not a valid JSON profiles export.": "所選檔案不是有效的 JSON 設定檔匯出檔。",
+  "Failed to import profiles: {0}": "匯入設定檔失敗：{0}"
 }

@@ -66,6 +66,14 @@
         "title": "%command.profile.addFromFile.title%"
       },
       {
+        "command": "codex-switch.profile.exportSettings",
+        "title": "%command.profile.exportSettings.title%"
+      },
+      {
+        "command": "codex-switch.profile.importSettings",
+        "title": "%command.profile.importSettings.title%"
+      },
+      {
         "command": "codex-switch.profile.rename",
         "title": "%command.profile.rename.title%"
       },

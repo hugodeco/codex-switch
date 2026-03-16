@@ -33,5 +33,14 @@
   "Switch profile": "切换配置文件",
   "This account is already saved as profile \"{0}\". Replace it?": "此账号已作为配置文件“{0}”保存。要替换吗？",
   "Unknown": "未知",
-  "none": "无"
+  "none": "无",
+  "Exported {0} profile(s) to {1}. Skipped {2} profile(s) without tokens.": "已将 {0} 个配置导出到 {1}。已跳过 {2} 个缺少令牌的配置。",
+  "Import completed: created {0}, updated {1}, skipped {2}.": "导入完成：已创建 {0}，已更新 {1}，已跳过 {2}。",
+  "Unknown import error.": "未知导入错误。",
+  "Import profiles": "导入配置文件",
+  "Import profiles...": "导入配置文件...",
+  "Export profiles": "导出配置文件",
+  "Export profiles...": "导出配置文件...",
+  "Selected file is not a valid JSON profiles export.": "所选文件不是有效的 JSON 配置文件导出。",
+  "Failed to import profiles: {0}": "导入配置文件失败：{0}"
 }

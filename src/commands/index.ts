@@ -34,6 +34,11 @@ export function registerCommands(
       return
     }
 
+    if (vscode.env.remoteName === 'wsl') {
+      await vscode.commands.executeCommand(reloadWindowCommandId)
+      return
+    }
+
     const commandIds = await vscode.commands.getCommands(true)
     if (commandIds.includes(restartExtensionHostCommandId)) {
       try {

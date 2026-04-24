@@ -9,6 +9,7 @@ import {
   loadAuthDataFromFile,
   shouldUseWslAuthPath,
 } from '../auth/auth-manager'
+import { ProfileSummary } from '../types'
 import { buildProfileMetaDisplay } from '../ui/profile-display'
 
 /**
@@ -22,11 +23,63 @@ export function registerCommands(
 ) {
   type StatusBarClickBehavior = 'cycle' | 'toggleLast'
 
+  interface RestartAfterProfileSwitchContext {
+    previousProfile?: ProfileSummary
+    nextProfile?: ProfileSummary
+  }
+
   const restartExtensionHostCommandId =
     'workbench.action.restartExtensionHost'
   const reloadWindowCommandId = 'workbench.action.reloadWindow'
 
-  const maybeRestartAfterProfileSwitch = async () => {
+  const normalizeComparableIdentity = (value: string | undefined): string =>
+    String(value || '').trim().toLowerCase()
+
+  const hasComparableValueChange = (
+    previousValue: string | undefined,
+    nextValue: string | undefined,
+  ): boolean => {
+    const previous = normalizeComparableIdentity(previousValue)
+    const next = normalizeComparableIdentity(nextValue)
+    return Boolean(previous) && Boolean(next) && previous !== next
+  }
+
+  const shouldWarnBeforeRestart = (
+    previousProfile: ProfileSummary | undefined,
+    nextProfile: ProfileSummary | undefined,
+  ): boolean => {
+    if (!previousProfile || !nextProfile || previousProfile.id === nextProfile.id) {
+      return false
+    }
+
+    const previousEmail =
+      previousProfile.email !== 'Unknown' ? previousProfile.email : undefined
+    const nextEmail = nextProfile.email !== 'Unknown' ? nextProfile.email : undefined
+
+    return [
+      [previousProfile.subject, nextProfile.subject],
+      [previousProfile.chatgptUserId, nextProfile.chatgptUserId],
+      [previousProfile.userId, nextProfile.userId],
+      [previousEmail, nextEmail],
+      [previousProfile.accountId, nextProfile.accountId],
+    ].some(([previousValue, nextValue]) =>
+      hasComparableValueChange(previousValue, nextValue),
+    )
+  }
+
+  const getProfileIfDefined = async (
+    profileId: string | undefined,
+  ): Promise<ProfileSummary | undefined> => {
+    if (!profileId) {
+      return undefined
+    }
+
+    return await profileManager.getProfile(profileId)
+  }
+
+  const maybeRestartAfterProfileSwitch = async (
+    restartContext: RestartAfterProfileSwitchContext = {},
+  ) => {
     const reloadAfterSwitch = vscode.workspace
       .getConfiguration('codexSwitch')
       .get<boolean>('reloadWindowAfterProfileSwitch', false)
@@ -35,8 +88,36 @@ export function registerCommands(
     }
 
     if (vscode.env.remoteName === 'wsl') {
-      await vscode.commands.executeCommand(reloadWindowCommandId)
+      // In WSL remote windows, forced restart/reload tends to surface a
+      // reconnect prompt before the local chat stack settles on the new auth.
       return
+    }
+
+    if (
+      shouldWarnBeforeRestart(
+        restartContext.previousProfile,
+        restartContext.nextProfile,
+      )
+    ) {
+      const restartNowLabel = vscode.l10n.t('Restart now')
+      const laterLabel = vscode.l10n.t('Later')
+      const pick = await vscode.window.showWarningMessage(
+        vscode.l10n.t(
+          'Restarting now can reopen chat sessions from the previous account without their earlier content. Restart now?',
+        ),
+        { modal: true },
+        restartNowLabel,
+        laterLabel,
+      )
+
+      if (pick !== restartNowLabel) {
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t(
+            'The new profile is already written to auth.json. Restart VS Code later, after closing chat sessions from the previous account, to apply it to Codex chat.',
+          ),
+        )
+        return
+      }
     }
 
     const commandIds = await vscode.commands.getCommands(true)
@@ -141,12 +222,16 @@ export function registerCommands(
       if (!pick) {
         return
       }
+      const previousProfile = activeId
+        ? profiles.find((profile) => profile.id === activeId)
+        : undefined
+      const nextProfile = profiles.find((profile) => profile.id === pick.profileId)
       const ok = await profileManager.setActiveProfileId(pick.profileId)
       if (!ok) {
         return
       }
       await onAuthChanged()
-      await maybeRestartAfterProfileSwitch()
+      await maybeRestartAfterProfileSwitch({ previousProfile, nextProfile })
     },
   )
 
@@ -165,13 +250,18 @@ export function registerCommands(
         return
       }
 
+      const previousProfile = await getProfileIfDefined(
+        await profileManager.getActiveProfileId(),
+      )
+      const nextProfile = await getProfileIfDefined(profileId)
+
       const ok = await profileManager.setActiveProfileId(profileId)
       if (!ok) {
         return
       }
 
       await onAuthChanged()
-      await maybeRestartAfterProfileSwitch()
+      await maybeRestartAfterProfileSwitch({ previousProfile, nextProfile })
     },
   )
 
@@ -179,14 +269,19 @@ export function registerCommands(
     'codex-switch.profile.toggleLast',
     async () => {
       const behavior = getStatusBarClickBehavior()
+      const previousProfile = await getProfileIfDefined(
+        await profileManager.getActiveProfileId(),
+      )
+
       if (behavior === 'toggleLast') {
         const newId = await profileManager.toggleLastProfileId()
         if (!newId) {
           await vscode.commands.executeCommand('codex-switch.profile.switch')
           return
         }
+        const nextProfile = await getProfileIfDefined(newId)
         await onAuthChanged()
-        await maybeRestartAfterProfileSwitch()
+        await maybeRestartAfterProfileSwitch({ previousProfile, nextProfile })
         return
       }
 
@@ -200,13 +295,14 @@ export function registerCommands(
       const currentIndex = profiles.findIndex((p) => p.id === activeId)
       const nextIndex =
         currentIndex === -1 ? 0 : (currentIndex + 1) % profiles.length
+      const nextProfile = profiles[nextIndex]
       const ok = await profileManager.setActiveProfileId(profiles[nextIndex].id)
       if (!ok) {
         return
       }
 
       await onAuthChanged()
-      await maybeRestartAfterProfileSwitch()
+      await maybeRestartAfterProfileSwitch({ previousProfile, nextProfile })
     },
   )
 
@@ -229,6 +325,9 @@ export function registerCommands(
 
       const existing = await profileManager.findDuplicateProfile(authData)
       if (existing) {
+        const previousProfile = await getProfileIfDefined(
+          await profileManager.getActiveProfileId(),
+        )
         const replaceLabel = vscode.l10n.t('Replace')
         const pick = await vscode.window.showWarningMessage(
           vscode.l10n.t(
@@ -245,7 +344,10 @@ export function registerCommands(
         await profileManager.replaceProfileAuth(existing.id, authData)
         await profileManager.setActiveProfileId(existing.id)
         await onAuthChanged()
-        await maybeRestartAfterProfileSwitch()
+        await maybeRestartAfterProfileSwitch({
+          previousProfile,
+          nextProfile: await getProfileIfDefined(existing.id),
+        })
         return
       }
 
@@ -264,10 +366,16 @@ export function registerCommands(
         return
       }
 
+      const previousProfile = await getProfileIfDefined(
+        await profileManager.getActiveProfileId(),
+      )
       const profile = await profileManager.createProfile(name, authData)
       await profileManager.setActiveProfileId(profile.id)
       await onAuthChanged()
-      await maybeRestartAfterProfileSwitch()
+      await maybeRestartAfterProfileSwitch({
+        previousProfile,
+        nextProfile: profile,
+      })
     },
   )
 
@@ -400,6 +508,9 @@ export function registerCommands(
 
       const existing = await profileManager.findDuplicateProfile(authData)
       if (existing) {
+        const previousProfile = await getProfileIfDefined(
+          await profileManager.getActiveProfileId(),
+        )
         const replaceLabel = vscode.l10n.t('Replace')
         const pick = await vscode.window.showWarningMessage(
           vscode.l10n.t(
@@ -416,7 +527,10 @@ export function registerCommands(
         await profileManager.replaceProfileAuth(existing.id, authData)
         await profileManager.setActiveProfileId(existing.id)
         await onAuthChanged()
-        await maybeRestartAfterProfileSwitch()
+        await maybeRestartAfterProfileSwitch({
+          previousProfile,
+          nextProfile: await getProfileIfDefined(existing.id),
+        })
         return
       }
 
@@ -433,10 +547,16 @@ export function registerCommands(
         return
       }
 
+      const previousProfile = await getProfileIfDefined(
+        await profileManager.getActiveProfileId(),
+      )
       const profile = await profileManager.createProfile(name, authData)
       await profileManager.setActiveProfileId(profile.id)
       await onAuthChanged()
-      await maybeRestartAfterProfileSwitch()
+      await maybeRestartAfterProfileSwitch({
+        previousProfile,
+        nextProfile: profile,
+      })
     },
   )
 
@@ -489,9 +609,17 @@ export function registerCommands(
       }
 
       try {
+        const previousProfile = await getProfileIfDefined(
+          await profileManager.getActiveProfileId(),
+        )
         const result = await profileManager.importProfilesFromTransfer(payload)
         await onAuthChanged()
-        await maybeRestartAfterProfileSwitch()
+        await maybeRestartAfterProfileSwitch({
+          previousProfile,
+          nextProfile: await getProfileIfDefined(
+            await profileManager.getActiveProfileId(),
+          ),
+        })
         vscode.window.showInformationMessage(
           vscode.l10n.t(
             'Import completed: created {0}, updated {1}, skipped {2}.',
